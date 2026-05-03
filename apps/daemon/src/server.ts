@@ -29,6 +29,7 @@ import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
 import { createChatRunService } from './runs.js';
 import { importClaudeDesignZip } from './claude-design-import.js';
+import { importFrontendSnapshotZip } from './frontend-snapshot-import.js';
 import { listPromptTemplates, readPromptTemplate } from './prompt-templates.js';
 import { buildDocumentPreview } from './document-preview.js';
 import { lintArtifact, renderFindingsForAgent } from './lint-artifact.js';
@@ -817,6 +818,90 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
         res.status(400).json({ error: String(err) });
       }
     },
+  );
+
+  // Generic frontend-snapshot import. Accepts a `.zip` containing a
+  // `manifest.json` (metadata.kind === 'frontend-snapshot') alongside the
+  // project files. Producers should target this endpoint going forward.
+  const frontendSnapshotImportHandler = async (req, res) => {
+    try {
+      if (!req.file)
+        return res.status(400).json({ error: 'zip file required' });
+      const originalName =
+        req.file.originalname || 'frontend-snapshot.zip';
+      if (!/\.zip$/i.test(originalName)) {
+        fs.promises.unlink(req.file.path).catch(() => {});
+        return res.status(400).json({ error: 'expected a .zip file' });
+      }
+      const id = randomId();
+      const now = Date.now();
+      const baseName =
+        originalName.replace(/\.zip$/i, '').trim() || 'Frontend snapshot';
+      const imported = await importFrontendSnapshotZip(
+        req.file.path,
+        projectDir(PROJECTS_DIR, id),
+      );
+      fs.promises.unlink(req.file.path).catch(() => {});
+
+      const manifestMetadata =
+        (imported.manifest && typeof imported.manifest === 'object'
+          ? imported.manifest.metadata
+          : null) || {};
+      const declaredName =
+        typeof manifestMetadata.name === 'string' && manifestMetadata.name.trim()
+          ? manifestMetadata.name.trim()
+          : baseName;
+
+      const project = insertProject(db, {
+        id,
+        name: declaredName,
+        skillId: null,
+        designSystemId: null,
+        pendingPrompt: `Imported from frontend snapshot: ${originalName}. Continue editing ${imported.entryFile}.`,
+        metadata: {
+          kind: 'frontend-snapshot',
+          importedFrom: 'frontend-snapshot',
+          entryFile: imported.entryFile,
+          sourceFileName: originalName,
+        },
+        createdAt: now,
+        updatedAt: now,
+      });
+      const cid = randomId();
+      insertConversation(db, {
+        id: cid,
+        projectId: id,
+        title: 'Imported frontend snapshot',
+        createdAt: now,
+        updatedAt: now,
+      });
+      setTabs(db, id, [imported.entryFile], imported.entryFile);
+      res.json({
+        project,
+        conversationId: cid,
+        entryFile: imported.entryFile,
+        files: imported.files,
+        manifest: imported.manifest,
+      });
+    } catch (err) {
+      if (req.file?.path) fs.promises.unlink(req.file.path).catch(() => {});
+      res.status(400).json({ error: String(err) });
+    }
+  };
+
+  app.post(
+    '/api/import/frontend-snapshot',
+    importUpload.single('file'),
+    frontendSnapshotImportHandler,
+  );
+
+  // Backwards-compatible alias kept permanently so older producers keep
+  // working without coordinated upgrades. Internally delegates to the
+  // generic frontend-snapshot handler above.
+  app.post(
+    '/api/import/lune-frontend-snapshot',
+    importUpload.single('file'),
+    frontendSnapshotImportHandler,
   );
 
   app.get('/api/projects/:id', (req, res) => {
