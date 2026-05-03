@@ -29,6 +29,7 @@ import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
 import { createChatRunService } from './runs.js';
 import { importClaudeDesignZip } from './claude-design-import.js';
+import { importLuneFrontendSnapshotZip } from './lune-frontend-snapshot-import.js';
 import { listPromptTemplates, readPromptTemplate } from './prompt-templates.js';
 import { buildDocumentPreview } from './document-preview.js';
 import { lintArtifact, renderFindingsForAgent } from './lint-artifact.js';
@@ -815,6 +816,92 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
       } catch (err) {
         if (req.file?.path) fs.promises.unlink(req.file.path).catch(() => {});
         res.status(400).json({ error: String(err) });
+      }
+    },
+  );
+
+  // `/api/import/lune-frontend-snapshot` — accepts a ZIP that conforms to
+  // the lune-to-od-bridge v0.1.x manifest schema (any producer, not just
+  // Lune itself). The handler shape mirrors `/api/import/claude-design`
+  // above so the welcome-dialog drag-drop UI can switch importers based
+  // on file content without needing two upload paths. See
+  // `lune-frontend-snapshot-import.ts` for the manifest contract details.
+  app.post(
+    '/api/import/lune-frontend-snapshot',
+    importUpload.single('file'),
+    async (req, res) => {
+      try {
+        if (!req.file)
+          return res.status(400).json({ error: 'zip file required' });
+        const originalName =
+          req.file.originalname || 'frontend-snapshot.od.zip';
+        if (!/\.zip$/i.test(originalName)) {
+          fs.promises.unlink(req.file.path).catch(() => {});
+          return res.status(400).json({ error: 'expected a .zip file' });
+        }
+        const id = randomId();
+        const now = Date.now();
+        const imported = await importLuneFrontendSnapshotZip(
+          req.file.path,
+          projectDir(PROJECTS_DIR, id),
+        );
+        fs.promises.unlink(req.file.path).catch(() => {});
+
+        const projectName =
+          imported.manifest.projectName ||
+          originalName.replace(/\.zip$/i, '').trim() ||
+          'Frontend snapshot import';
+
+        const project = insertProject(db, {
+          id,
+          name: projectName,
+          skillId: null,
+          designSystemId: null,
+          pendingPrompt:
+            `Imported frontend snapshot "${projectName}" ` +
+            `(${imported.manifest.counts?.routes ?? 0} routes, ` +
+            `${imported.manifest.counts?.components ?? 0} components, ` +
+            `${imported.manifest.counts?.designTokens ?? 0} design tokens). ` +
+            `Iterate the visuals here and the producer can re-import on the next round-trip.`,
+          metadata: {
+            kind: 'frontend-snapshot',
+            importedFrom: 'lune-frontend-snapshot',
+            manifestVersion: imported.manifest.manifestVersion,
+            sourceFileName: originalName,
+            sourceRepoUrl: imported.manifest.sourceRepoUrl ?? null,
+            commitSha: imported.manifest.commitSha ?? null,
+            counts: imported.manifest.counts ?? null,
+          },
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        const cid = randomId();
+        insertConversation(db, {
+          id: cid,
+          projectId: id,
+          title: `Imported ${projectName} snapshot`,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        // Open the manifest itself as the default tab so operators land on
+        // the metadata view first; the route + component inventories are a
+        // single click away in the file tree.
+        setTabs(db, id, ['manifest.json'], 'manifest.json');
+
+        res.json({
+          project,
+          conversationId: cid,
+          manifestVersion: imported.manifest.manifestVersion,
+          counts: imported.manifest.counts ?? null,
+          screenshots: imported.screenshots,
+          files: imported.files,
+          redirectUrl: `/projects/${id}`,
+        });
+      } catch (err) {
+        if (req.file?.path) fs.promises.unlink(req.file.path).catch(() => {});
+        res.status(400).json({ error: String(err?.message ?? err) });
       }
     },
   );

@@ -58,7 +58,7 @@ OD stands on four open-source shoulders:
 | **Visual directions** | 5 curated schools (Editorial Monocle · Modern Minimal · Warm Soft · Tech Utility · Brutalist Experimental) — each ships a deterministic OKLch palette + font stack ([`apps/web/src/prompts/directions.ts`](apps/web/src/prompts/directions.ts)) |
 | **Device frames** | iPhone 15 Pro · Pixel · iPad Pro · MacBook · Browser Chrome — pixel-accurate, shared across skills under [`assets/frames/`](assets/frames/) |
 | **Agent runtime** | Local daemon spawns the CLI in your project folder — agent gets real `Read`, `Write`, `Bash`, `WebFetch` against a real on-disk environment, with Windows `ENAMETOOLONG` fallbacks (stdin / prompt-file) on every adapter |
-| **Imports** | Drop a [Claude Design][cd] export ZIP onto the welcome dialog — `POST /api/import/claude-design` parses it into a real project so your agent can keep editing where Anthropic left off |
+| **Imports** | Drop a [Claude Design][cd] export ZIP onto the welcome dialog — `POST /api/import/claude-design` parses it into a real project so your agent can keep editing where Anthropic left off. Also supports **frontend-snapshot ZIPs** (`manifest.json` + `routes.json` + `components.json` + `design-tokens.json` + optional `screenshots/`) via `POST /api/import/lune-frontend-snapshot` — drop a snapshot from any producer that targets the [lune-to-od-bridge v0.1.x manifest schema][lbridge] and OD opens it as a routes / components / token-set workspace you can iterate against. |
 | **Persistence** | SQLite at `.od/app.sqlite`: projects · conversations · messages · tabs · saved templates. Reopen tomorrow, todo card and open files are exactly where you left them. |
 | **Lifecycle** | One entry point: `pnpm tools-dev` (start / stop / run / status / logs / inspect / check) — boots daemon + web (+ desktop) under typed sidecar stamps |
 | **Desktop** | Optional Electron shell with sandboxed renderer + sidecar IPC (STATUS / EVAL / SCREENSHOT / CONSOLE / CLICK / SHUTDOWN) — drives `tools-dev inspect desktop screenshot` for E2E |
@@ -67,6 +67,7 @@ OD stands on four open-source shoulders:
 
 [acd2]: https://github.com/VoltAgent/awesome-design-md
 [ads]: https://github.com/bergside/awesome-design-skills
+[lbridge]: https://github.com/looptech-ai/lune/blob/main/.claude/harness/contracts/lune-to-od-bridge.md
 
 ## Demo
 
@@ -269,6 +270,7 @@ Every layer is composable. Every layer is a file you can edit. Read [`apps/web/s
    │  /api/design-systems  /api/projects/…
    │  /api/chat (SSE)      /api/proxy/stream (SSE)
    │  /api/templates       /api/import/claude-design
+   │                       /api/import/lune-frontend-snapshot
    │  /api/artifacts/save  /api/artifacts/lint
    │  /api/upload          /api/projects/:id/files…
    │  /artifacts (static)  /frames (static)
@@ -564,6 +566,7 @@ Pattern is the same as the rest: pick a template, edit the brief, send. The agen
 The chat / artifact loop gets the spotlight, but a handful of less-visible capabilities are already wired and worth knowing before you compare OD to anything else:
 
 - **Claude Design ZIP import.** Drop an export from claude.ai onto the welcome dialog. `POST /api/import/claude-design` extracts it into a real `.od/projects/<id>/`, opens the entry file as a tab, and stages a continue-where-Anthropic-left-off prompt for your local agent. No re-prompting, no "ask the model to re-create what we just had". ([`apps/daemon/src/server.ts`](apps/daemon/src/server.ts) — `/api/import/claude-design`)
+- **Frontend-snapshot ZIP import.** Drop a ZIP that conforms to the [lune-to-od-bridge v0.1.x manifest schema][lbridge] (`manifest.json`, `routes.json`, `components.json`, `design-tokens.json`, optional `screenshots/<file>`). `POST /api/import/lune-frontend-snapshot` validates the manifest version (`0.1.*` accepted; `0.2+` rejected with an explicit upgrade message), persists the artifact tree under `.od/projects/<id>/`, opens `manifest.json` as the default tab, and seeds a "iterate the visuals here and the producer can re-import on the next round-trip" prompt. The endpoint is producer-agnostic — the schema is a generic frontend snapshot, not a Lune-specific format. ([`apps/daemon/src/lune-frontend-snapshot-import.ts`](apps/daemon/src/lune-frontend-snapshot-import.ts), wired in [`apps/daemon/src/server.ts`](apps/daemon/src/server.ts) — `/api/import/lune-frontend-snapshot`)
 - **OpenAI-compatible BYOK proxy.** `POST /api/proxy/stream` takes `{ baseUrl, apiKey, model, messages }`, normalises the path (`…/v1/chat/completions`), forwards SSE chunks back to the browser, and rejects loopback / link-local / RFC1918 destinations to head off SSRF. Anything that speaks the OpenAI chat schema works — Anthropic-via-OpenAI shim, DeepSeek, Groq, MiMo, OpenRouter, your self-hosted vLLM. MiMo gets `tool_choice: 'none'` automatically because its tool schema misbehaves on free-form generation.
 - **User-saved templates.** Once you like a render, `POST /api/templates` snapshots the HTML + metadata into the SQLite `templates` table. The next project picks it from a "your templates" row in the picker — same surface as the shipped 31, but yours.
 - **Tab persistence.** Every project remembers its open files and active tab in the `tabs` table. Reopen the project tomorrow and the workspace looks exactly the way you left it.
@@ -599,6 +602,7 @@ The whole machinery below is the [`huashu-design`](https://github.com/alchaincyf
 | Live todo progress + tool stream | ❌ | ✅ | **✅** (UX pattern from open-codesign) |
 | Sandboxed iframe preview | ❌ | ✅ | **✅** (pattern from open-codesign) |
 | Claude Design ZIP import | n/a | ❌ | **✅ `POST /api/import/claude-design` — keep editing where Anthropic left off** |
+| Frontend-snapshot ZIP import | n/a | ❌ | **✅ `POST /api/import/lune-frontend-snapshot` — round-trip with any [bridge-schema][lbridge] producer** |
 | Comment-mode surgical edits | ❌ | ✅ | 🟡 partial — preview element comments + chat attachments; surgical patch reliability still in progress |
 | AI-emitted tweaks panel | ❌ | ✅ | 🚧 roadmap — dedicated chat-side panel UX is not implemented yet |
 | Filesystem-grade workspace | ❌ | partial (Electron sandbox) | **✅ Real cwd, real tools, persisted SQLite (projects · conversations · messages · tabs · templates)** |
@@ -664,6 +668,7 @@ Long-form provenance write-up — what we take from each, what we deliberately d
 - [x] SQLite-backed projects · conversations · messages · tabs · templates
 - [x] OpenAI-compatible BYOK proxy (`/api/proxy/stream`) with SSRF guard
 - [x] Claude Design ZIP import (`/api/import/claude-design`)
+- [x] Frontend-snapshot ZIP import (`/api/import/lune-frontend-snapshot`) — accepts any [lune-to-od-bridge v0.1.x][lbridge] producer ZIP
 - [x] Sidecar protocol + Electron desktop with IPC automation (STATUS / EVAL / SCREENSHOT / CONSOLE / CLICK / SHUTDOWN)
 - [x] Artifact lint API + 5-dim self-critique pre-emit gate
 - [ ] Comment-mode surgical edits — partial shipped: preview element comments and chat attachments; reliable targeted patching remains in progress
