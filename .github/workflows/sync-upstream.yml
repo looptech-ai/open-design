@@ -1,0 +1,86 @@
+name: Sync upstream
+
+# Pull from the public upstream repo on a schedule and open a PR. If the
+# merge is clean, the PR can be reviewed and merged like any other change.
+# If there are conflicts, the PR is opened anyway with the conflict
+# markers committed and the assigned reviewer is paged for manual
+# resolution.
+
+on:
+  schedule:
+    # Mondays 09:00 UTC.
+    - cron: '0 9 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Configure git identity
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream https://github.com/nexu-io/open-design.git || true
+          git fetch upstream main
+
+      - name: Compute date stamp
+        id: stamp
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Create sync branch
+        env:
+          SYNC_DATE: ${{ steps.stamp.outputs.date }}
+        run: |
+          git checkout -B "sync/upstream-${SYNC_DATE}"
+
+      - name: Merge upstream/main
+        id: merge
+        env:
+          SYNC_DATE: ${{ steps.stamp.outputs.date }}
+        run: |
+          set +e
+          git merge upstream/main --no-ff --no-edit \
+            -m "chore(sync): merge upstream/main (${SYNC_DATE})"
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Conflicted: commit the in-progress state with markers so a
+          # reviewer can resolve it from the PR.
+          git add -A
+          git commit -m "chore(sync): merge upstream/main with conflicts (${SYNC_DATE})" || true
+          echo "conflict=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          base: main
+          branch: sync/upstream-${{ steps.stamp.outputs.date }}
+          title: 'chore(sync): pull from upstream nexu-io/open-design (${{ steps.stamp.outputs.date }})'
+          body: |
+            Automated weekly sync from `upstream/main` (`nexu-io/open-design`).
+
+            - Date: `${{ steps.stamp.outputs.date }}`
+            - Conflicts: `${{ steps.merge.outputs.conflict }}`
+
+            If the conflicts flag is `true`, the merge commit on this branch
+            still contains conflict markers. Resolve them locally before
+            merging the PR.
+          labels: |
+            sync
+            automated
+          reviewers: amacsmith

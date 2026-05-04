@@ -1,5 +1,16 @@
 # Open Design
 
+## This is a fork
+
+This repo is a private fork of [nexu-io/open-design](https://github.com/nexu-io/open-design) used internally. We sync with upstream weekly via `.github/workflows/sync-upstream.yml`. We do NOT contribute changes back upstream.
+
+Our customizations:
+
+- Generic `/api/import/frontend-snapshot` endpoint (with backwards-compat alias) for ingesting frontend-snapshot ZIPs
+- `frontend-snapshot` added to the `ProjectKind` enum in `packages/contracts`
+
+---
+
 > **The open-source alternative to [Claude Design][cd].** Local-first, web-deployable, BYOK at every layer — **12 coding-agent CLIs** auto-detected on your `PATH` (Claude Code, Codex, Devin for Terminal, Cursor Agent, Gemini CLI, OpenCode, Qwen, GitHub Copilot CLI, Hermes, Kimi, Pi, Kiro) become the design engine, driven by **31 composable Skills** and **72 brand-grade Design Systems**. No CLI? An OpenAI-compatible BYOK proxy is the same loop minus the spawn.
 
 <p align="center">

@@ -7,7 +7,8 @@ export type ProjectKind =
   | 'other'
   | 'image'
   | 'video'
-  | 'audio';
+  | 'audio'
+  | 'frontend-snapshot';
 
 export type MediaAspect = '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
 
