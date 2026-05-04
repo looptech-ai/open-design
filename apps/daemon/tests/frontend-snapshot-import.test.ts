@@ -152,15 +152,15 @@ describe('importFrontendSnapshotZip', () => {
     );
   });
 
-  it('rejects manifests with the wrong metadata.kind', async () => {
-    const manifest = { metadata: { kind: 'design-snapshot' } };
+  it('rejects manifests with the wrong metadata.kind and lists the accepted set', async () => {
+    const manifest = { metadata: { kind: 'totally-bogus' } };
     await writeZip([
       { name: 'manifest.json', body: JSON.stringify(manifest) },
       { name: 'index.html', body: '<html></html>' },
     ]);
 
     await expect(importFrontendSnapshotZip(zipPath, projectDir)).rejects.toThrow(
-      /metadata\.kind must be "frontend-snapshot"/,
+      /metadata\.kind must be one of: "frontend-snapshot", "frontend-snapshot-live"/,
     );
   });
 
@@ -244,5 +244,229 @@ describe('importFrontendSnapshotZip', () => {
     await importFrontendSnapshotZip(zipPath, projectDir);
     const info = await stat(path.join(projectDir, 'index.html'));
     expect(info.isFile()).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------
+  // LOO-1186 cycle 1 — frontend-snapshot-live manifest kind
+  // ---------------------------------------------------------------------
+
+  describe('frontend-snapshot-live manifest kind', () => {
+    it('accepts a live snapshot with valid liveUrl and viewport', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          name: 'Live Lune dev',
+          entryFile: 'index.html',
+          liveUrl: 'http://localhost:3000',
+          viewport: { width: 1440, height: 900 },
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html><body>placeholder</body></html>' },
+      ]);
+
+      const result = await importFrontendSnapshotZip(zipPath, projectDir);
+
+      expect(result.entryFile).toBe('index.html');
+      expect(result.manifest.metadata.kind).toBe('frontend-snapshot-live');
+      expect(result.manifest.metadata.liveUrl).toBe('http://localhost:3000');
+      expect(result.manifest.metadata.viewport).toEqual({ width: 1440, height: 900 });
+    });
+
+    it('accepts an https liveUrl', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          liveUrl: 'https://app.example.dev',
+          viewport: { width: 1280, height: 720 },
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html></html>' },
+      ]);
+
+      const result = await importFrontendSnapshotZip(zipPath, projectDir);
+      expect(result.manifest.metadata.liveUrl).toBe('https://app.example.dev');
+    });
+
+    it('rejects when liveUrl is missing', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          viewport: { width: 1440, height: 900 },
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html></html>' },
+      ]);
+
+      await expect(importFrontendSnapshotZip(zipPath, projectDir)).rejects.toThrow(
+        /liveUrl is required/,
+      );
+    });
+
+    it('rejects javascript: URLs in liveUrl', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          liveUrl: 'javascript:alert(1)',
+          viewport: { width: 1440, height: 900 },
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html></html>' },
+      ]);
+
+      await expect(importFrontendSnapshotZip(zipPath, projectDir)).rejects.toThrow(
+        /must use http: or https:/,
+      );
+    });
+
+    it('rejects file:// URLs in liveUrl', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          liveUrl: 'file:///etc/passwd',
+          viewport: { width: 1440, height: 900 },
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html></html>' },
+      ]);
+
+      await expect(importFrontendSnapshotZip(zipPath, projectDir)).rejects.toThrow(
+        /must use http: or https:/,
+      );
+    });
+
+    it('rejects malformed liveUrl strings', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          liveUrl: 'not a url at all',
+          viewport: { width: 1440, height: 900 },
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html></html>' },
+      ]);
+
+      await expect(importFrontendSnapshotZip(zipPath, projectDir)).rejects.toThrow(
+        /liveUrl is not a valid URL/,
+      );
+    });
+
+    it('rejects when viewport is missing', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          liveUrl: 'http://localhost:3000',
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html></html>' },
+      ]);
+
+      await expect(importFrontendSnapshotZip(zipPath, projectDir)).rejects.toThrow(
+        /viewport is required/,
+      );
+    });
+
+    it('rejects negative viewport width', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          liveUrl: 'http://localhost:3000',
+          viewport: { width: -100, height: 900 },
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html></html>' },
+      ]);
+
+      await expect(importFrontendSnapshotZip(zipPath, projectDir)).rejects.toThrow(
+        /viewport\.width must be between/,
+      );
+    });
+
+    it('rejects viewport with non-number width', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          liveUrl: 'http://localhost:3000',
+          viewport: { width: '1440', height: 900 },
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html></html>' },
+      ]);
+
+      await expect(importFrontendSnapshotZip(zipPath, projectDir)).rejects.toThrow(
+        /viewport\.width must be a number/,
+      );
+    });
+
+    it('rejects viewport missing height', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          liveUrl: 'http://localhost:3000',
+          viewport: { width: 1440 },
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html></html>' },
+      ]);
+
+      await expect(importFrontendSnapshotZip(zipPath, projectDir)).rejects.toThrow(
+        /viewport\.height must be a number/,
+      );
+    });
+
+    it('rejects viewport width above the upper bound', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          liveUrl: 'http://localhost:3000',
+          viewport: { width: 99999, height: 900 },
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html></html>' },
+      ]);
+
+      await expect(importFrontendSnapshotZip(zipPath, projectDir)).rejects.toThrow(
+        /viewport\.width must be between/,
+      );
+    });
+
+    it('rejects viewport height below the lower bound', async () => {
+      const manifest = {
+        metadata: {
+          kind: 'frontend-snapshot-live',
+          liveUrl: 'http://localhost:3000',
+          viewport: { width: 1440, height: 100 },
+        },
+      };
+      await writeZip([
+        { name: 'manifest.json', body: JSON.stringify(manifest) },
+        { name: 'index.html', body: '<html></html>' },
+      ]);
+
+      await expect(importFrontendSnapshotZip(zipPath, projectDir)).rejects.toThrow(
+        /viewport\.height must be between/,
+      );
+    });
   });
 });

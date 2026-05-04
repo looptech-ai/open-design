@@ -36,7 +36,25 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 256 * 1024;
 
 const MANIFEST_NAME = 'manifest.json';
-const EXPECTED_MANIFEST_KIND = 'frontend-snapshot';
+
+// Manifest kinds the daemon accepts:
+//   - 'frontend-snapshot'      static gallery (existing, v0.3.0)
+//   - 'frontend-snapshot-live' NEW (v0.4.0): live iframe rendering of the
+//                              running dev server. Carries `metadata.liveUrl`
+//                              + `metadata.viewport` for the OD viewer.
+const ACCEPTED_MANIFEST_KINDS = new Set([
+  'frontend-snapshot',
+  'frontend-snapshot-live',
+]);
+
+// Viewport bounds for `metadata.viewport` on `frontend-snapshot-live`.
+// Sized to cover phone-portrait (320x480) up through 4K landscape
+// (3840x2160). Outside this range almost certainly indicates a malformed
+// or hostile manifest.
+const MIN_VIEWPORT_WIDTH = 320;
+const MAX_VIEWPORT_WIDTH = 3840;
+const MIN_VIEWPORT_HEIGHT = 480;
+const MAX_VIEWPORT_HEIGHT = 2160;
 
 export async function importFrontendSnapshotZip(zipPath, projectDir) {
   const zip = await readFile(zipPath);
@@ -119,12 +137,72 @@ function parseManifest(raw) {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
     throw new Error('manifest.json is missing metadata object');
   }
-  if (metadata.kind !== EXPECTED_MANIFEST_KIND) {
+  if (typeof metadata.kind !== 'string' || !ACCEPTED_MANIFEST_KINDS.has(metadata.kind)) {
+    const allowed = Array.from(ACCEPTED_MANIFEST_KINDS)
+      .map((k) => `"${k}"`)
+      .join(', ');
     throw new Error(
-      `manifest.json metadata.kind must be "${EXPECTED_MANIFEST_KIND}"`,
+      `manifest.json metadata.kind must be one of: ${allowed} (got ${JSON.stringify(metadata.kind)})`,
     );
   }
+  if (metadata.kind === 'frontend-snapshot-live') {
+    validateLiveMetadata(metadata);
+  }
   return parsed;
+}
+
+function validateLiveMetadata(metadata) {
+  // liveUrl: required string, http(s) only. Reject javascript:, file:, data:,
+  // ftp:, etc. — anything that would let an iframe load a non-HTTP origin
+  // when the OD viewer renders it.
+  if (typeof metadata.liveUrl !== 'string' || metadata.liveUrl.length === 0) {
+    throw new Error(
+      'manifest.json metadata.liveUrl is required for kind "frontend-snapshot-live"',
+    );
+  }
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(metadata.liveUrl);
+  } catch (err) {
+    throw new Error(
+      `manifest.json metadata.liveUrl is not a valid URL: ${err.message}`,
+    );
+  }
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    throw new Error(
+      `manifest.json metadata.liveUrl must use http: or https: (got ${parsedUrl.protocol})`,
+    );
+  }
+
+  // viewport: required object with finite-positive width/height inside the
+  // allowed bounds.
+  const viewport = metadata.viewport;
+  if (!viewport || typeof viewport !== 'object' || Array.isArray(viewport)) {
+    throw new Error(
+      'manifest.json metadata.viewport is required for kind "frontend-snapshot-live"',
+    );
+  }
+  const { width, height } = viewport;
+  if (typeof width !== 'number' || !Number.isFinite(width)) {
+    throw new Error(
+      'manifest.json metadata.viewport.width must be a number',
+    );
+  }
+  if (typeof height !== 'number' || !Number.isFinite(height)) {
+    throw new Error(
+      'manifest.json metadata.viewport.height must be a number',
+    );
+  }
+  if (width < MIN_VIEWPORT_WIDTH || width > MAX_VIEWPORT_WIDTH) {
+    throw new Error(
+      `manifest.json metadata.viewport.width must be between ${MIN_VIEWPORT_WIDTH} and ${MAX_VIEWPORT_WIDTH} (got ${width})`,
+    );
+  }
+  if (height < MIN_VIEWPORT_HEIGHT || height > MAX_VIEWPORT_HEIGHT) {
+    throw new Error(
+      `manifest.json metadata.viewport.height must be between ${MIN_VIEWPORT_HEIGHT} and ${MAX_VIEWPORT_HEIGHT} (got ${height})`,
+    );
+  }
 }
 
 function readCentralDirectory(zip) {

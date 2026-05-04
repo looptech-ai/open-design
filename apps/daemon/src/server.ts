@@ -852,18 +852,33 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
           ? manifestMetadata.name.trim()
           : baseName;
 
+      // For `frontend-snapshot-live` carry liveUrl + viewport into the
+      // project metadata so the OD viewer can render the live iframe (cycle
+      // 2 of LOO-1186). The static `frontend-snapshot` path is unchanged.
+      const isLive = manifestMetadata.kind === 'frontend-snapshot-live';
+      const projectMetadata = isLive
+        ? {
+            kind: 'frontend-snapshot-live',
+            importedFrom: 'frontend-snapshot',
+            entryFile: imported.entryFile,
+            sourceFileName: originalName,
+            liveUrl: manifestMetadata.liveUrl,
+            viewport: manifestMetadata.viewport,
+          }
+        : {
+            kind: 'frontend-snapshot',
+            importedFrom: 'frontend-snapshot',
+            entryFile: imported.entryFile,
+            sourceFileName: originalName,
+          };
+
       const project = insertProject(db, {
         id,
         name: declaredName,
         skillId: null,
         designSystemId: null,
         pendingPrompt: `Imported from frontend snapshot: ${originalName}. Continue editing ${imported.entryFile}.`,
-        metadata: {
-          kind: 'frontend-snapshot',
-          importedFrom: 'frontend-snapshot',
-          entryFile: imported.entryFile,
-          sourceFileName: originalName,
-        },
+        metadata: projectMetadata,
         createdAt: now,
         updatedAt: now,
       });
