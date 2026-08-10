@@ -695,7 +695,7 @@ Issue、PR、新 Skill、新 Design System を歓迎します。最も効果の�
 コード、ドキュメント、フィードバック、新 Skill、新 Design System、あるいは鋭い Issue — あらゆる形で Open Design を前進させてくださったすべての方に感謝します。すべての実質的なコントリビューションは大切であり、以下のウォールは最もシンプルな感謝の表明です。
 
 <a href="https://github.com/nexu-io/open-design/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=nexu-io/open-design&cache_bust=2026-08-09" alt="Open Design コントリビューター" />
+  <img src="https://contrib.rocks/image?repo=nexu-io/open-design&cache_bust=2026-08-10" alt="Open Design コントリビューター" />
 </a>
 
 初めての PR を送った方 — ようこそ。[`good-first-issue`](https://github.com/nexu-io/open-design/labels/good-first-issue) ラベルがエントリポイントです。
@@ -712,9 +712,9 @@ Issue、PR、新 Skill、新 Design System を歓迎します。最も効果の�
 
 <a href="https://star-history.com/#nexu-io/open-design&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=nexu-io/open-design&type=Date&theme=dark&cache_bust=2026-08-09" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=nexu-io/open-design&type=Date&cache_bust=2026-08-09" />
-    <img alt="Open Design star history" src="https://api.star-history.com/svg?repos=nexu-io/open-design&type=Date&cache_bust=2026-08-09" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=nexu-io/open-design&type=Date&theme=dark&cache_bust=2026-08-10" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=nexu-io/open-design&type=Date&cache_bust=2026-08-10" />
+    <img alt="Open Design star history" src="https://api.star-history.com/svg?repos=nexu-io/open-design&type=Date&cache_bust=2026-08-10" />
   </picture>
 </a>
 
